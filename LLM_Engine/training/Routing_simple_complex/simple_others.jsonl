@@ -1,0 +1,50 @@
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "Today I worked for 3h on spark"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "I read a book for 25min"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "woke up at 8:55 went to work at 9:32"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "slept 8 hours last nite"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "meeting with boss 1hr"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "cooked dinner took about 45 mins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "studied spanish for 30 min"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "cleaned the house for 2 hrs"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "watched tv series 3 episodes"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "meditated 10mins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "stuck in traffic 40 mins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "groccery shopping 1 hour"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "woke up super early 5am"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "finished coding project"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "nap 20 min"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "drank 2L water today"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "played video games all evening"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "wrked from home 9 to 5"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "did laundry"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "read 10 pages of atomic habits"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "took the kids to park"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "replying to emails for 2 hours"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "gardening in backyard"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "went to bed at 11pm"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "commute was long today"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "lunch break 30 mins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "practiced guitar 45m"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "walked to the station"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "studied for exam"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "washed the car"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "ate pizza for dinner"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "client call 30 mins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "organized my desk"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "woke up late 10am"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "didnt sleep well only 4h"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "journaled for 10 min"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "grocery run"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "helped kids with hmwrk"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "painted the wall"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "fixed the sink"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "watched a movie"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "took vitamins"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "listened to podcast on commute"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "fasted until 12pm"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "mowed the lawn"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "shopped for clothes"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "had coffee with friend"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "researching for presentation"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "browsed social media 1h"}, {"role": "assistant", "content": "Simple"}]}
+{"messages": [{"role": "system", "content": "Classify the message as Simple or Complex."}, {"role": "user", "content": "watered plants"}, {"role": "assistant", "content": "Simple"}]}

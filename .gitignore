@@ -1,0 +1,38 @@
+.DS_Store
+
+# Azure Functions / local settings
+local.settings.json
+**/local.settings.json
+
+# Azure / VS Code
+.azure/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Project venv in Cornilius-Core
+Cornilius-Core/bin/
+Cornilius-Core/include/
+Cornilius-Core/lib/
+Cornilius-Core/pyvenv.cfg
+
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Azurite storage artifacts
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
