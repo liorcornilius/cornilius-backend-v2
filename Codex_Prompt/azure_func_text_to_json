@@ -1,256 +1,98 @@
 You are working in a Python Azure Functions repository.
 
 Project structure:
-- The Azure Functions app is located in a subfolder called: cornilius-core/
-- Target file to modify: cornilius-core/function_app.py
+- Azure Functions app is located in: cornilius-core/
+- File to modify: cornilius-core/function_app.py
 
-Task:
-Add ONE new Azure Function HTTP route that parses free-text user logs and prepares a payload for logging.
-DO NOT modify any existing code.
-DO NOT refactor or move code.
-ONLY append a new function segment after the existing evaluate_goals route.
+TASK:
+Add a new Azure Function HTTP route (do NOT modify existing routes).
 
-New route name:
-@parse_log_text
-
-Purpose:
-This route receives a user’s free-text log (e.g. "i ran 30km today") and:
-1) Fetches the user’s active GOALS from the database table public.goals
-2) Sends the goals + user text as context to an Azure OpenAI chat completion
-3) Returns the model’s JSON output to the caller
-
-This route DOES NOT insert anything into the logs table.
-It only parses and extracts structured data.
-
-----------------------------------------
-Request payload schema:
-{
-  "user_id": "<uuid>",
-  "text": "i ran 30km today",
-  "client_timestamp": "2026-01-01T12:00:00+02:00"   // optional
-}
-
-If client_timestamp is missing, default to current UTC ISO timestamp.
-Resolve this final timestamp and use it as CURRENT_TIME for all time defaults.
-Pass CURRENT_TIME explicitly to the LLM in the user message.
-
-----------------------------------------
-Database requirements (goals):
-- Table: public.goals
-- Filter conditions:
-  - user_id = payload.user_id
-  - status = 'active'
-- Select minimal fields only:
-  - id                      (IMPORTANT: identifier field is named "id")
-  - name
-  - domain                  (IMPORTANT: include domain to help matching, e.g. "fitness")
-  - definition_json (if exists)
-  - definition_status (if exists)
-
-If definition_status column exists:
-- Only include goals where definition_status = 'ready'
+The new route must:
+- Receive a user_id
+- Query the database table public.goals
+- Extract ACTIVE goals for that user
+- Use the goals data to dynamically build the SYSTEM PROMPT sent to the Azure OpenAI endpoint
 
 IMPORTANT:
-- When building the GOALS context passed to the LLM, include definition_json if it exists.
-  This definition_json contains keywords/examples that allow the LLM to match similar phrasing
-  (e.g. "ran", "running", "jogging") to the same goal.
-- Include domain in the GOALS context.
+- The goals data is stored in the column: public.goals.meta
+- meta is a JSONB column
+- Each row.meta already represents ONE goal definition
+- You must build a JSON array of goals using ONLY this column
+
+Example (conceptual):
+rows = SELECT meta FROM public.goals WHERE user_id = ? AND status = 'active'
+user_goals = [row.meta for row in rows]
+
+This user_goals array MUST be injected verbatim into the SYSTEM PROMPT
+under the section called "USER GOALS".
 
 ----------------------------------------
-OpenAI requirements:
-- Use Azure OpenAI Chat Completions REST API
-- All database secrets are already fetched from Azure Key Vault and available using existing helpers
-- OpenAI secrets are NOT yet present and must be fetched from Key Vault
-
-Add placeholders for OpenAI secrets (do NOT invent names):
-- OPENAI_ENDPOINT_SECRET_NAME = "<ADD_YOUR_SECRET_NAME_HERE>"
-- OPENAI_KEY_SECRET_NAME      = "<ADD_YOUR_SECRET_NAME_HERE>"
-- OPENAI_DEPLOYMENT_NAME      = "<ADD_YOUR_DEPLOYMENT_NAME_HERE>"
-- OPENAI_API_VERSION          = "<ADD_API_VERSION_HERE>"
-
-Use the SAME Key Vault client pattern already used in the file to fetch these secrets at runtime.
-
-Azure OpenAI REST URL format:
-{OPENAI_ENDPOINT}/openai/deployments/{OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version={OPENAI_API_VERSION}
-
-Headers:
-- Content-Type: application/json
-- api-key: <OPENAI key from Key Vault>
-
-Request body:
-- temperature: 0
-- messages: as described below
-
+SYSTEM PROMPT TO SEND TO AZURE OPENAI
 ----------------------------------------
-OpenAI prompt construction (MUST IMPLEMENT IN CODE):
-Build the OpenAI "messages" payload with:
-1) A system message containing the strict extraction rules (below).
-2) A user message that includes:
-   - FEW_SHOT_EXAMPLES (static text examples; see below)
-   - GOALS (json-dumped list from DB)
-   - USER_TEXT (the actual user input)
-   - CURRENT_TIME (resolved timestamp)
 
-System message MUST include strict rules:
-- You are a data extraction engine.
-- You MUST choose goals only from the provided GOALS list (use the "id" field from that list).
-- If no goal matches a described activity, omit it (do not invent goals).
-- Output JSON only. No prose.
-- IMPORTANT: The user text may contain MULTIPLE activities that map to multiple goals. You MUST return an array of log objects.
-- Only create a log when the user clearly performed an activity that matches a goal.
-  Do NOT create logs for future intentions or hypotheticals, e.g.:
-  - "I want to run tomorrow"
-  - "thinking about running"
-  - "plan to lift weights later"
+The system prompt MUST be constructed EXACTLY as follows,
+with USER GOALS dynamically injected from public.goals.meta:
 
-Time rules (IMPORTANT):
-- CURRENT_TIME is provided in the user message.
-- For EACH extracted activity/log:
-  - If the user provides an explicit time for that specific activity (e.g. "at 12:00"), use it.
-  - Otherwise, set occurred_at = CURRENT_TIME.
-- If the user uses relative words like "today" without specifying a time for that activity, DO NOT guess a time; use occurred_at = CURRENT_TIME.
-- If a time like "12:00" is given without a date, interpret it on the date of CURRENT_TIME with the same timezone offset.
+You are a strict JSON extraction engine for user goal logging.
 
-Value/unit rules (IMPORTANT):
-- If value and unit are present (e.g. "3km"), extract them.
-- If the user mentions an activity but provides no measurable value/unit (e.g. "I ran today" or "I ran and lifted weights"),
-  still create a log object for the matched goal, but set:
-  - value_number = null
-  - unit = null
-  (Later logic will fill defaults; do not ask follow-up questions for missing value/unit in this version.)
+USER GOALS (ONLY THESE ARE ALLOWED MATCHES):
+<JSON ARRAY BUILT FROM public.goals.meta>
 
-Follow-up questions:
-- In this version, do NOT ask follow-up questions for missing value/unit.
-- Only ask a follow-up question if the activity is ambiguous between multiple goals and you cannot choose reliably.
-  Otherwise, prefer returning logs with null value/unit.
+NON-NEGOTIABLE RULES:
+1) The user may describe ONE OR MORE activities in USER_TEXT. You MUST extract all clearly performed activities.
+2) For EACH extracted activity, output ONE item in items[].
+3) You MUST match ONLY against USER GOALS listed above. Never invent goals.
+4) If an activity matches a goal:
+   - set status = "matched"
+   - copy goal.id EXACTLY from USER GOALS (verbatim UUID)
+   - copy goal.name EXACTLY from USER GOALS
+   - copy goal.domain EXACTLY from USER GOALS
+5) If an activity does NOT match any goal:
+   - set status = "goal_not_found"
+   - set goal = null
+   - set activity_text to the activity phrase exactly as written by the user
+6) Spelling tolerance:
+   - Minor spelling mistakes and tense changes are allowed if intent is obvious
+   - If intent is not obvious, treat as goal_not_found
+7) Only log activities the user clearly DID.
+   - Do NOT log future plans, wishes, hypotheticals, or negations
+8) Value/unit extraction:
+   - If value and unit are present, extract them
+   - If missing, set value_number = null and unit = null
 
-Few-shot examples (IMPORTANT; MUST INCLUDE THESE IN THE USER MESSAGE BEFORE GOALS/USER_TEXT):
-- Include the following static examples to stabilize behavior and demonstrate multi-log output.
-- These examples are generic and must be included verbatim (do not use real user data).
+9) Timestamp rule:
+   - CURRENT_TIME will be provided in the user message
+   - occurred_at is REQUIRED but MAY be null
+   - If an explicit time is present, convert it to ISO-8601
+   - If NO explicit time is present, occurred_at = null
+   - If only "today" is mentioned, occurred_at = null
 
-FEW_SHOT_EXAMPLES:
-Example A:
-USER_TEXT: i ran 3km
-OUTPUT:
+10) Output JSON only. No prose. No markdown.
+
+OUTPUT FORMAT (MUST MATCH EXACTLY):
 {
-  "logs": [
+  "items": [
     {
-      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
-      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": 3, "unit": "km", "occurred_at": "<CURRENT_TIME>" },
-      "confidence": 0.9
+      "status": "matched" | "goal_not_found",
+      "activity_text": "<string>",
+      "goal": {
+        "id": "<uuid>",
+        "name": "<string>",
+        "domain": "<string>"
+      } | null,
+      "value_number": <number|null>,
+      "unit": <string|null>,
+      "occurred_at": <"ISO-8601 timestamp" | null>,
+      "confidence": <number 0..1>
     }
-  ],
-  "follow_up_question": null
+  ]
 }
-
-Example B:
-USER_TEXT: i ran 3km and lifted weights
-OUTPUT:
-{
-  "logs": [
-    {
-      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
-      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": 3, "unit": "km", "occurred_at": "<CURRENT_TIME>" },
-      "confidence": 0.9
-    },
-    {
-      "matched_goal": { "id": "<id_of_Lift_from_GOALS>", "name": "Lift weights", "domain": "fitness" },
-      "log_payload": { "goal_id": "<id_of_Lift_from_GOALS>", "value_number": null, "unit": null, "occurred_at": "<CURRENT_TIME>" },
-      "confidence": 0.85
-    }
-  ],
-  "follow_up_question": null
-}
-
-Example C:
-USER_TEXT: i ran today
-OUTPUT:
-{
-  "logs": [
-    {
-      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
-      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": null, "unit": null, "occurred_at": "<CURRENT_TIME>" },
-      "confidence": 0.8
-    }
-  ],
-  "follow_up_question": null
-}
-
-User message MUST include, in this order:
-FEW_SHOT_EXAMPLES:
-<the static examples text above>
-
-GOALS:
-<json-dumped list of active goals, including id, name, domain, and definition_json if present>
-
-USER_TEXT:
-<raw user text>
-
-CURRENT_TIME:
-<resolved timestamp string>
 
 ----------------------------------------
-Expected model output (NEW REQUIRED FORMAT):
-Return a single JSON object with this structure:
-
-{
-  "logs": [
-    {
-      "matched_goal": { "id": "<uuid>", "name": "Run", "domain": "fitness" },
-      "log_payload": {
-        "goal_id": "<uuid>",
-        "value_number": 3,
-        "unit": "km",
-        "occurred_at": "<timestamp>"
-      },
-      "confidence": 0.94
-    }
-    // possibly more log objects
-  ],
-  "follow_up_question": null
-}
-
-Examples (behavior requirements):
-1) "i ran 3k and lifted weights"
-- Return TWO logs in logs[].
-- Both occurred_at default to CURRENT_TIME unless explicit time given.
-
-2) "i ran 3km today and at 12:00 i lifted weights"
-- The run log occurred_at = CURRENT_TIME (do not convert "today" to a time).
-- The weights log occurred_at = "12:00" interpreted on the date of CURRENT_TIME with the same timezone offset.
-
-3) "I ran today" or "I ran and lifted weights"
-- Still return matching logs.
-- value_number and unit must be null.
-
-If no goals match:
-{
-  "logs": [],
-  "follow_up_question": null
-}
-
-IMPORTANT:
-- In log_payload, set goal_id to matched_goal.id (even though the goals table uses "id").
-  (This keeps log_payload consistent for downstream logging functions.)
-
-----------------------------------------
-Implementation constraints:
-- Do NOT change existing imports unless strictly required
-- Prefer existing HTTP response helpers already used in the file
-- Return HTTP 400 for missing required fields (user_id, text)
-- Return HTTP 200 with application/json on success
-- Return HTTP 500 with concise error message on unexpected failure
-- Do not log or print secrets
-
-Response parsing requirement:
-- Extract the assistant message content from the Azure OpenAI response.
-- Attempt to parse it with json.loads().
-- If parsing fails (model returned non-JSON), return:
-  { "raw_model_output": "<string>" }
-
-----------------------------------------
-Placement:
-Append the new @parse_log_text Azure Function route immediately AFTER the evaluate_goals route in function_app.py.
-
-Deliverable:
-A single new Azure Function route added to cornilius-core/function_app.py that follows all rules above.
+CRITICAL IMPLEMENTATION NOTES:
+- The goals array MUST come from public.goals.meta
+- Do NOT hardcode goals
+- Do NOT transform or rename fields inside meta
+- Inject the JSON array exactly where USER GOALS appears
+- The OpenAI system prompt must be user-specific
+- The output schema must be returned verbatim to the caller

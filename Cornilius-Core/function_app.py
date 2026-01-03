@@ -2,6 +2,8 @@ import azure.functions as func
 import logging
 import os
 import json
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone, date
 
 from supabase import create_client
@@ -68,6 +70,17 @@ def fetch_active_goals(supabase, user_id: str):
         )
         .eq("user_id", user_id)
         .eq("is_active", True)
+        .execute()
+    )
+    return resp.data or []
+
+
+def fetch_active_goal_meta(supabase, user_id: str):
+    resp = (
+        supabase.table("goals")
+        .select("meta")
+        .eq("user_id", user_id)
+        .eq("status", "active")
         .execute()
     )
     return resp.data or []
@@ -151,6 +164,141 @@ def iso_datetime(value):
     else:
         value = value.astimezone(timezone.utc)
     return value.isoformat()
+
+
+# ---------------------------------------------------------------------
+# Azure OpenAI helpers
+# ---------------------------------------------------------------------
+def get_azure_openai_config():
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AZURE-OPENAI-ENDPOINT")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv("AZURE-OPENAI-DEPLOYMENT")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION") or "2024-02-15-preview"
+
+    api_key = _get_secret_from_keyvault(
+        [
+            "AZURE-OPENAI-KEY",
+            "AZURE_OPENAI_KEY",
+            "AZURE-OPENAI-API-KEY",
+            "AZURE_OPENAI_API_KEY",
+            "OPENAI_API_KEY",
+        ]
+    )
+    if not api_key:
+        api_key = (
+            os.getenv("AZURE_OPENAI_KEY")
+            or os.getenv("AZURE_OPENAI_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+        )
+
+    return endpoint, deployment, api_version, api_key
+
+
+def build_goal_extraction_system_prompt(user_goals):
+    goals_json = json.dumps(user_goals)
+    return "\n".join(
+        [
+            "You are a strict JSON extraction engine for user goal logging.",
+            "",
+            "USER GOALS (ONLY THESE ARE ALLOWED MATCHES):",
+            goals_json,
+            "",
+            "NON-NEGOTIABLE RULES:",
+            "1) The user may describe ONE OR MORE activities in USER_TEXT. You MUST extract all clearly performed activities.",
+            "2) For EACH extracted activity, output ONE item in items[].",
+            "3) You MUST match ONLY against USER GOALS listed above. Never invent goals.",
+            "4) If an activity matches a goal:",
+            "   - set status = \"matched\"",
+            "   - copy goal.id EXACTLY from USER GOALS (verbatim UUID)",
+            "   - copy goal.name EXACTLY from USER GOALS",
+            "   - copy goal.domain EXACTLY from USER GOALS",
+            "5) If an activity does NOT match any goal:",
+            "   - set status = \"goal_not_found\"",
+            "   - set goal = null",
+            "   - set activity_text to the activity phrase exactly as written by the user",
+            "6) Spelling tolerance:",
+            "   - Minor spelling mistakes and tense changes are allowed if intent is obvious",
+            "   - If intent is not obvious, treat as goal_not_found",
+            "7) Only log activities the user clearly DID.",
+            "   - Do NOT log future plans, wishes, hypotheticals, or negations",
+            "8) Value/unit extraction:",
+            "   - If value and unit are present, extract them",
+            "   - If missing, set value_number = null and unit = null",
+            "",
+            "9) Timestamp rule:",
+            "   - CURRENT_TIME will be provided in the user message",
+            "   - occurred_at is REQUIRED but MAY be null",
+            "   - If an explicit time is present, convert it to ISO-8601",
+            "   - If NO explicit time is present, occurred_at = null",
+            "   - If only \"today\" is mentioned, occurred_at = null",
+            "",
+            "10) Output JSON only. No prose. No markdown.",
+            "",
+            "OUTPUT FORMAT (MUST MATCH EXACTLY):",
+            "{",
+            "  \"items\": [",
+            "    {",
+            "      \"status\": \"matched\" | \"goal_not_found\",",
+            "      \"activity_text\": \"<string>\",",
+            "      \"goal\": {",
+            "        \"id\": \"<uuid>\",",
+            "        \"name\": \"<string>\",",
+            "        \"domain\": \"<string>\"",
+            "      } | null,",
+            "      \"value_number\": <number|null>,",
+            "      \"unit\": <string|null>,",
+            "      \"occurred_at\": <\"ISO-8601 timestamp\" | null>,",
+            "      \"confidence\": <number 0..1>",
+            "    }",
+            "  ]",
+            "}",
+        ]
+    )
+
+
+def call_azure_openai_chat(system_prompt: str, user_text: str, current_time: str):
+    endpoint, deployment, api_version, api_key = get_azure_openai_config()
+    if not endpoint or not deployment or not api_key:
+        raise RuntimeError("Azure OpenAI configuration missing")
+
+    url = (
+        f"{endpoint}/openai/deployments/{deployment}/chat/completions"
+        f"?api-version={api_version}"
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"USER_TEXT: {user_text}\nCURRENT_TIME: {current_time}"},
+    ]
+    payload = {
+        "messages": messages,
+        "temperature": 0,
+        "top_p": 1,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "api-key": api_key},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Azure OpenAI error: {detail}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Azure OpenAI connection error: {e}") from e
+
+    response_payload = json.loads(body)
+    choices = response_payload.get("choices") or []
+    if not choices:
+        raise RuntimeError("Azure OpenAI returned no choices")
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if not content:
+        raise RuntimeError("Azure OpenAI returned empty content")
+    return content
 
 
 # ---------------------------------------------------------------------
@@ -431,6 +579,46 @@ def log_result(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logging.exception("Error logging result")
+        return func.HttpResponse(
+            json.dumps({"success": False, "error": str(e)}, default=str),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="text_to_goal_json", auth_level=func.AuthLevel.FUNCTION, methods=["GET", "POST"])
+def text_to_goal_json(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        payload = req.get_json()
+    except Exception:
+        payload = {}
+
+    user_id = req.params.get("user_id") or payload.get("user_id")
+    user_text = req.params.get("user_text") or payload.get("user_text")
+    current_time = req.params.get("current_time") or payload.get("current_time")
+
+    if not user_id:
+        return func.HttpResponse("Missing user_id", status_code=400)
+    if not user_text:
+        return func.HttpResponse("Missing user_text", status_code=400)
+
+    if not current_time:
+        current_time = datetime.now(timezone.utc).isoformat()
+
+    try:
+        supabase = get_supabase_client()
+        rows = fetch_active_goal_meta(supabase, user_id)
+        user_goals = [row.get("meta") for row in rows if row.get("meta") is not None]
+        system_prompt = build_goal_extraction_system_prompt(user_goals)
+
+        content = call_azure_openai_chat(system_prompt, user_text, current_time)
+        return func.HttpResponse(
+            content,
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logging.exception("Error generating goal JSON")
         return func.HttpResponse(
             json.dumps({"success": False, "error": str(e)}, default=str),
             mimetype="application/json",
