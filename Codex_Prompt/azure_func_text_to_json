@@ -15,8 +15,8 @@ New route name:
 
 Purpose:
 This route receives a user’s free-text log (e.g. "i ran 30km today") and:
-1) Fetches the user’s active trackers from the database table public.trackers
-2) Sends the trackers + user text as context to an Azure OpenAI chat completion
+1) Fetches the user’s active GOALS from the database table public.goals
+2) Sends the goals + user text as context to an Azure OpenAI chat completion
 3) Returns the model’s JSON output to the caller
 
 This route DOES NOT insert anything into the logs table.
@@ -31,28 +31,30 @@ Request payload schema:
 }
 
 If client_timestamp is missing, default to current UTC ISO timestamp.
+Resolve this final timestamp and use it as CURRENT_TIME for all time defaults.
+Pass CURRENT_TIME explicitly to the LLM in the user message.
 
 ----------------------------------------
-Database requirements (trackers):
-- Table: public.trackers
+Database requirements (goals):
+- Table: public.goals
 - Filter conditions:
   - user_id = payload.user_id
   - status = 'active'
 - Select minimal fields only:
-  - id                      (IMPORTANT: the identifier field is named "id", not tracker_id)
+  - id                      (IMPORTANT: identifier field is named "id")
   - name
-  - domain                  (IMPORTANT: include domain to help the model disambiguate, e.g. "fitness")
+  - domain                  (IMPORTANT: include domain to help matching, e.g. "fitness")
   - definition_json (if exists)
   - definition_status (if exists)
 
 If definition_status column exists:
-- Only include trackers where definition_status = 'ready'
+- Only include goals where definition_status = 'ready'
 
 IMPORTANT:
-- When building the TRACKERS context passed to the LLM, include definition_json if it exists.
+- When building the GOALS context passed to the LLM, include definition_json if it exists.
   This definition_json contains keywords/examples that allow the LLM to match similar phrasing
-  (e.g. "ran", "running", "jogging") to the same tracker.
-- Include domain in the TRACKERS context (e.g. "fitness", "finance", etc.) to help matching.
+  (e.g. "ran", "running", "jogging") to the same goal.
+- Include domain in the GOALS context.
 
 ----------------------------------------
 OpenAI requirements:
@@ -80,58 +82,155 @@ Request body:
 - messages: as described below
 
 ----------------------------------------
-OpenAI prompt construction:
+OpenAI prompt construction (MUST IMPLEMENT IN CODE):
+Build the OpenAI "messages" payload with:
+1) A system message containing the strict extraction rules (below).
+2) A user message that includes:
+   - FEW_SHOT_EXAMPLES (static text examples; see below)
+   - GOALS (json-dumped list from DB)
+   - USER_TEXT (the actual user input)
+   - CURRENT_TIME (resolved timestamp)
+
 System message MUST include strict rules:
 - You are a data extraction engine.
-- You MUST choose a tracker only from the provided TRACKERS list (use the "id" field from that list).
-- If no tracker matches the user text, return matched_tracker = null.
+- You MUST choose goals only from the provided GOALS list (use the "id" field from that list).
+- If no goal matches a described activity, omit it (do not invent goals).
 - Output JSON only. No prose.
+- IMPORTANT: The user text may contain MULTIPLE activities that map to multiple goals. You MUST return an array of log objects.
+- Only create a log when the user clearly performed an activity that matches a goal.
+  Do NOT create logs for future intentions or hypotheticals, e.g.:
+  - "I want to run tomorrow"
+  - "thinking about running"
+  - "plan to lift weights later"
 
-Follow-up question rule (be conservative):
-- Only return follow_up_question when the text cannot be logged without guessing a required value.
-  Examples:
-  - user mentions an activity but provides no measurable value/unit (e.g. "I ran" with no distance/time)
-  - text is ambiguous between multiple trackers with similar keywords (e.g. "I trained")
-- If timestamp is missing from text, do NOT ask. Use CLIENT_TIMESTAMP as occurred_at.
+Time rules (IMPORTANT):
+- CURRENT_TIME is provided in the user message.
+- For EACH extracted activity/log:
+  - If the user provides an explicit time for that specific activity (e.g. "at 12:00"), use it.
+  - Otherwise, set occurred_at = CURRENT_TIME.
+- If the user uses relative words like "today" without specifying a time for that activity, DO NOT guess a time; use occurred_at = CURRENT_TIME.
+- If a time like "12:00" is given without a date, interpret it on the date of CURRENT_TIME with the same timezone offset.
 
-User message MUST include:
-TRACKERS:
-<json-dumped list of active trackers, including id, name, domain, and definition_json if present>
+Value/unit rules (IMPORTANT):
+- If value and unit are present (e.g. "3km"), extract them.
+- If the user mentions an activity but provides no measurable value/unit (e.g. "I ran today" or "I ran and lifted weights"),
+  still create a log object for the matched goal, but set:
+  - value_number = null
+  - unit = null
+  (Later logic will fill defaults; do not ask follow-up questions for missing value/unit in this version.)
+
+Follow-up questions:
+- In this version, do NOT ask follow-up questions for missing value/unit.
+- Only ask a follow-up question if the activity is ambiguous between multiple goals and you cannot choose reliably.
+  Otherwise, prefer returning logs with null value/unit.
+
+Few-shot examples (IMPORTANT; MUST INCLUDE THESE IN THE USER MESSAGE BEFORE GOALS/USER_TEXT):
+- Include the following static examples to stabilize behavior and demonstrate multi-log output.
+- These examples are generic and must be included verbatim (do not use real user data).
+
+FEW_SHOT_EXAMPLES:
+Example A:
+USER_TEXT: i ran 3km
+OUTPUT:
+{
+  "logs": [
+    {
+      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
+      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": 3, "unit": "km", "occurred_at": "<CURRENT_TIME>" },
+      "confidence": 0.9
+    }
+  ],
+  "follow_up_question": null
+}
+
+Example B:
+USER_TEXT: i ran 3km and lifted weights
+OUTPUT:
+{
+  "logs": [
+    {
+      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
+      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": 3, "unit": "km", "occurred_at": "<CURRENT_TIME>" },
+      "confidence": 0.9
+    },
+    {
+      "matched_goal": { "id": "<id_of_Lift_from_GOALS>", "name": "Lift weights", "domain": "fitness" },
+      "log_payload": { "goal_id": "<id_of_Lift_from_GOALS>", "value_number": null, "unit": null, "occurred_at": "<CURRENT_TIME>" },
+      "confidence": 0.85
+    }
+  ],
+  "follow_up_question": null
+}
+
+Example C:
+USER_TEXT: i ran today
+OUTPUT:
+{
+  "logs": [
+    {
+      "matched_goal": { "id": "<id_of_Run_from_GOALS>", "name": "Run", "domain": "fitness" },
+      "log_payload": { "goal_id": "<id_of_Run_from_GOALS>", "value_number": null, "unit": null, "occurred_at": "<CURRENT_TIME>" },
+      "confidence": 0.8
+    }
+  ],
+  "follow_up_question": null
+}
+
+User message MUST include, in this order:
+FEW_SHOT_EXAMPLES:
+<the static examples text above>
+
+GOALS:
+<json-dumped list of active goals, including id, name, domain, and definition_json if present>
 
 USER_TEXT:
 <raw user text>
 
-CLIENT_TIMESTAMP:
-<resolved timestamp>
+CURRENT_TIME:
+<resolved timestamp string>
 
 ----------------------------------------
-Expected model output (example):
+Expected model output (NEW REQUIRED FORMAT):
+Return a single JSON object with this structure:
+
 {
-  "matched_tracker": {
-    "id": "<uuid>",
-    "name": "Run",
-    "domain": "fitness"
-  },
-  "log_payload": {
-    "tracker_id": "<uuid>",
-    "value_number": 30,
-    "unit": "km",
-    "occurred_at": "2026-01-01T12:00:00+02:00"
-  },
-  "follow_up_question": null,
-  "confidence": 0.94
+  "logs": [
+    {
+      "matched_goal": { "id": "<uuid>", "name": "Run", "domain": "fitness" },
+      "log_payload": {
+        "goal_id": "<uuid>",
+        "value_number": 3,
+        "unit": "km",
+        "occurred_at": "<timestamp>"
+      },
+      "confidence": 0.94
+    }
+    // possibly more log objects
+  ],
+  "follow_up_question": null
 }
 
-If no tracker matches:
+Examples (behavior requirements):
+1) "i ran 3k and lifted weights"
+- Return TWO logs in logs[].
+- Both occurred_at default to CURRENT_TIME unless explicit time given.
+
+2) "i ran 3km today and at 12:00 i lifted weights"
+- The run log occurred_at = CURRENT_TIME (do not convert "today" to a time).
+- The weights log occurred_at = "12:00" interpreted on the date of CURRENT_TIME with the same timezone offset.
+
+3) "I ran today" or "I ran and lifted weights"
+- Still return matching logs.
+- value_number and unit must be null.
+
+If no goals match:
 {
-  "matched_tracker": null,
-  "log_payload": null,
-  "follow_up_question": null,
-  "confidence": 0.2
+  "logs": [],
+  "follow_up_question": null
 }
 
 IMPORTANT:
-- In log_payload, set tracker_id to matched_tracker.id (even though the trackers table uses "id").
+- In log_payload, set goal_id to matched_goal.id (even though the goals table uses "id").
   (This keeps log_payload consistent for downstream logging functions.)
 
 ----------------------------------------
