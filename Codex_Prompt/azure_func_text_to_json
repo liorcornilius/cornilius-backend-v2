@@ -1,0 +1,157 @@
+You are working in a Python Azure Functions repository.
+
+Project structure:
+- The Azure Functions app is located in a subfolder called: cornilius-core/
+- Target file to modify: cornilius-core/function_app.py
+
+Task:
+Add ONE new Azure Function HTTP route that parses free-text user logs and prepares a payload for logging.
+DO NOT modify any existing code.
+DO NOT refactor or move code.
+ONLY append a new function segment after the existing evaluate_goals route.
+
+New route name:
+@parse_log_text
+
+Purpose:
+This route receives a user’s free-text log (e.g. "i ran 30km today") and:
+1) Fetches the user’s active trackers from the database table public.trackers
+2) Sends the trackers + user text as context to an Azure OpenAI chat completion
+3) Returns the model’s JSON output to the caller
+
+This route DOES NOT insert anything into the logs table.
+It only parses and extracts structured data.
+
+----------------------------------------
+Request payload schema:
+{
+  "user_id": "<uuid>",
+  "text": "i ran 30km today",
+  "client_timestamp": "2026-01-01T12:00:00+02:00"   // optional
+}
+
+If client_timestamp is missing, default to current UTC ISO timestamp.
+
+----------------------------------------
+Database requirements (trackers):
+- Table: public.trackers
+- Filter conditions:
+  - user_id = payload.user_id
+  - status = 'active'
+- Select minimal fields only:
+  - id                      (IMPORTANT: the identifier field is named "id", not tracker_id)
+  - name
+  - domain                  (IMPORTANT: include domain to help the model disambiguate, e.g. "fitness")
+  - definition_json (if exists)
+  - definition_status (if exists)
+
+If definition_status column exists:
+- Only include trackers where definition_status = 'ready'
+
+IMPORTANT:
+- When building the TRACKERS context passed to the LLM, include definition_json if it exists.
+  This definition_json contains keywords/examples that allow the LLM to match similar phrasing
+  (e.g. "ran", "running", "jogging") to the same tracker.
+- Include domain in the TRACKERS context (e.g. "fitness", "finance", etc.) to help matching.
+
+----------------------------------------
+OpenAI requirements:
+- Use Azure OpenAI Chat Completions REST API
+- All database secrets are already fetched from Azure Key Vault and available using existing helpers
+- OpenAI secrets are NOT yet present and must be fetched from Key Vault
+
+Add placeholders for OpenAI secrets (do NOT invent names):
+- OPENAI_ENDPOINT_SECRET_NAME = "<ADD_YOUR_SECRET_NAME_HERE>"
+- OPENAI_KEY_SECRET_NAME      = "<ADD_YOUR_SECRET_NAME_HERE>"
+- OPENAI_DEPLOYMENT_NAME      = "<ADD_YOUR_DEPLOYMENT_NAME_HERE>"
+- OPENAI_API_VERSION          = "<ADD_API_VERSION_HERE>"
+
+Use the SAME Key Vault client pattern already used in the file to fetch these secrets at runtime.
+
+Azure OpenAI REST URL format:
+{OPENAI_ENDPOINT}/openai/deployments/{OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version={OPENAI_API_VERSION}
+
+Headers:
+- Content-Type: application/json
+- api-key: <OPENAI key from Key Vault>
+
+Request body:
+- temperature: 0
+- messages: as described below
+
+----------------------------------------
+OpenAI prompt construction:
+System message MUST include strict rules:
+- You are a data extraction engine.
+- You MUST choose a tracker only from the provided TRACKERS list (use the "id" field from that list).
+- If no tracker matches the user text, return matched_tracker = null.
+- Output JSON only. No prose.
+
+Follow-up question rule (be conservative):
+- Only return follow_up_question when the text cannot be logged without guessing a required value.
+  Examples:
+  - user mentions an activity but provides no measurable value/unit (e.g. "I ran" with no distance/time)
+  - text is ambiguous between multiple trackers with similar keywords (e.g. "I trained")
+- If timestamp is missing from text, do NOT ask. Use CLIENT_TIMESTAMP as occurred_at.
+
+User message MUST include:
+TRACKERS:
+<json-dumped list of active trackers, including id, name, domain, and definition_json if present>
+
+USER_TEXT:
+<raw user text>
+
+CLIENT_TIMESTAMP:
+<resolved timestamp>
+
+----------------------------------------
+Expected model output (example):
+{
+  "matched_tracker": {
+    "id": "<uuid>",
+    "name": "Run",
+    "domain": "fitness"
+  },
+  "log_payload": {
+    "tracker_id": "<uuid>",
+    "value_number": 30,
+    "unit": "km",
+    "occurred_at": "2026-01-01T12:00:00+02:00"
+  },
+  "follow_up_question": null,
+  "confidence": 0.94
+}
+
+If no tracker matches:
+{
+  "matched_tracker": null,
+  "log_payload": null,
+  "follow_up_question": null,
+  "confidence": 0.2
+}
+
+IMPORTANT:
+- In log_payload, set tracker_id to matched_tracker.id (even though the trackers table uses "id").
+  (This keeps log_payload consistent for downstream logging functions.)
+
+----------------------------------------
+Implementation constraints:
+- Do NOT change existing imports unless strictly required
+- Prefer existing HTTP response helpers already used in the file
+- Return HTTP 400 for missing required fields (user_id, text)
+- Return HTTP 200 with application/json on success
+- Return HTTP 500 with concise error message on unexpected failure
+- Do not log or print secrets
+
+Response parsing requirement:
+- Extract the assistant message content from the Azure OpenAI response.
+- Attempt to parse it with json.loads().
+- If parsing fails (model returned non-JSON), return:
+  { "raw_model_output": "<string>" }
+
+----------------------------------------
+Placement:
+Append the new @parse_log_text Azure Function route immediately AFTER the evaluate_goals route in function_app.py.
+
+Deliverable:
+A single new Azure Function route added to cornilius-core/function_app.py that follows all rules above.
